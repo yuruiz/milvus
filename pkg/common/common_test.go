@@ -651,6 +651,57 @@ func TestNamespaceShardingEnabled(t *testing.T) {
 	})
 }
 
+func TestRLSEnabled(t *testing.T) {
+	t.Run("returns value when set", func(t *testing.T) {
+		enabled, err := IsRLSEnabled(&commonpb.KeyValuePair{Key: RLSEnabledKey, Value: "true"})
+		assert.NoError(t, err)
+		assert.True(t, enabled)
+	})
+
+	t.Run("defaults to false", func(t *testing.T) {
+		enabled, err := IsRLSEnabled(&commonpb.KeyValuePair{Key: "other.key", Value: "true"})
+		assert.NoError(t, err)
+		assert.False(t, enabled)
+
+		enabled, err = IsRLSEnabled()
+		assert.NoError(t, err)
+		assert.False(t, enabled)
+	})
+
+	t.Run("rejects enable until runtime enforcement lands", func(t *testing.T) {
+		err := ValidateRLSProperties(&commonpb.KeyValuePair{Key: RLSEnabledKey, Value: "true"})
+		assert.ErrorContains(t, err, "runtime enforcement is not available")
+	})
+
+	t.Run("accepts disabled", func(t *testing.T) {
+		err := ValidateRLSProperties(&commonpb.KeyValuePair{Key: RLSEnabledKey, Value: "false"})
+		assert.NoError(t, err)
+	})
+
+	t.Run("accepts missing key", func(t *testing.T) {
+		assert.NoError(t, ValidateRLSProperties())
+	})
+
+	t.Run("rejects invalid values", func(t *testing.T) {
+		for _, value := range []string{"invalid", "True", "FALSE", "1", "0"} {
+			err := ValidateRLSProperties(&commonpb.KeyValuePair{Key: RLSEnabledKey, Value: value})
+			if assert.Error(t, err, "value %q should be rejected", value) {
+				assert.Contains(t, err.Error(), "valid values")
+				assert.Contains(t, err.Error(), RLSEnabledKey)
+			}
+		}
+	})
+
+	t.Run("rejects wrong case key", func(t *testing.T) {
+		for _, key := range []string{"RLS.ENABLED", "Rls.Enabled", "RLS.enabled"} {
+			err := ValidateRLSProperties(&commonpb.KeyValuePair{Key: key, Value: "true"})
+			if assert.Error(t, err, "key %q should be rejected", key) {
+				assert.Contains(t, err.Error(), "did you mean")
+			}
+		}
+	})
+}
+
 func TestClampScalarIndexVersion(t *testing.T) {
 	max := MaximumScalarIndexEngineVersion
 
