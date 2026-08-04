@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	"github.com/milvus-io/milvus/internal/util/rlsutil"
 	"github.com/milvus-io/milvus/pkg/v3/proto/rootcoordpb"
 	"github.com/milvus-io/milvus/pkg/v3/util/merr"
 )
@@ -207,7 +208,7 @@ func TestManagerNotificationRefreshUpdatesOnlyRequestedSnapshot(t *testing.T) {
 	m := newManager()
 	require.True(t, m.setRLSPolicySnapshot("db", 100, policySnapshot{
 		Version:  10,
-		Policies: []*rootcoordpb.RLSPolicyInfo{{PolicyName: "old-policy"}},
+		Policies: []*rlsutil.RowPolicy{{PolicyName: "old-policy"}},
 	}))
 	require.True(t, m.setRLSPrincipalTagsSnapshot("db", 100, principalTagsSnapshot{
 		Version:       10,
@@ -231,7 +232,7 @@ func TestManagerSnapshotsUseSeparateVersionWatermarks(t *testing.T) {
 	m := newManager()
 	require.True(t, m.setRLSPolicySnapshot("db", 100, policySnapshot{
 		Version: 10,
-		Policies: []*rootcoordpb.RLSPolicyInfo{
+		Policies: []*rlsutil.RowPolicy{
 			{PolicyName: "new"},
 		},
 	}))
@@ -242,7 +243,7 @@ func TestManagerSnapshotsUseSeparateVersionWatermarks(t *testing.T) {
 
 	require.False(t, m.setRLSPolicySnapshot("db", 100, policySnapshot{
 		Version: 9,
-		Policies: []*rootcoordpb.RLSPolicyInfo{
+		Policies: []*rlsutil.RowPolicy{
 			{PolicyName: "stale"},
 		},
 	}))
@@ -261,7 +262,7 @@ func TestManagerRemoveCollection(t *testing.T) {
 	m := newManager()
 	require.True(t, m.setRLSPolicySnapshot("db", 100, policySnapshot{
 		Version: 1,
-		Policies: []*rootcoordpb.RLSPolicyInfo{
+		Policies: []*rlsutil.RowPolicy{
 			{PolicyName: "tenant"},
 		},
 	}))
@@ -271,11 +272,11 @@ func TestManagerRemoveCollection(t *testing.T) {
 
 func TestManagerSnapshotsOwnImmutableData(t *testing.T) {
 	m := newManager()
-	policy := &rootcoordpb.RLSPolicyInfo{PolicyName: "tenant"}
+	policy := &rlsutil.RowPolicy{PolicyName: "tenant"}
 	tags := map[string]string{"tenant": "acme"}
 	require.True(t, m.setRLSPolicySnapshot("db", 100, policySnapshot{
 		Version:  1,
-		Policies: []*rootcoordpb.RLSPolicyInfo{policy},
+		Policies: []*rlsutil.RowPolicy{policy},
 	}))
 	require.True(t, m.setRLSPrincipalTagsSnapshot("db", 100, principalTagsSnapshot{
 		Version:       1,
@@ -320,7 +321,7 @@ func TestManagerReconcilesExpiredSnapshots(t *testing.T) {
 	require.True(t, m.setRLSPolicySnapshot("db", 100, policySnapshot{
 		Version:     10,
 		RefreshedAt: oldRefresh,
-		Policies:    []*rootcoordpb.RLSPolicyInfo{{PolicyName: "old-policy"}},
+		Policies:    []*rlsutil.RowPolicy{{PolicyName: "old-policy"}},
 	}))
 	require.True(t, m.setRLSPrincipalTagsSnapshot("db", 100, principalTagsSnapshot{
 		Version:       10,
@@ -375,7 +376,7 @@ func TestManagerReconciliationRetriesFailedBulkSnapshot(t *testing.T) {
 	require.True(t, m.setRLSPolicySnapshot("db", 100, policySnapshot{
 		Version:     10,
 		RefreshedAt: oldRefresh,
-		Policies:    []*rootcoordpb.RLSPolicyInfo{{PolicyName: "old-policy"}},
+		Policies:    []*rlsutil.RowPolicy{{PolicyName: "old-policy"}},
 	}))
 	require.True(t, m.setRLSPrincipalTagsSnapshot("db", 100, principalTagsSnapshot{
 		Version:       10,
@@ -418,7 +419,7 @@ func TestManagerReconciliationDoesNotOverwriteNewerNotification(t *testing.T) {
 	require.True(t, m.setRLSPolicySnapshot("db", 100, policySnapshot{
 		Version:     10,
 		RefreshedAt: oldRefresh,
-		Policies:    []*rootcoordpb.RLSPolicyInfo{{PolicyName: "old-policy"}},
+		Policies:    []*rlsutil.RowPolicy{{PolicyName: "old-policy"}},
 	}))
 	require.True(t, m.setRLSPrincipalTagsSnapshot("db", 100, principalTagsSnapshot{
 		Version:     10,
@@ -447,7 +448,7 @@ func TestManagerReconciliationDoesNotOverwriteNewerNotification(t *testing.T) {
 	require.True(t, m.setRLSPolicySnapshot("db", 100, policySnapshot{
 		Version:     30,
 		RefreshedAt: now,
-		Policies:    []*rootcoordpb.RLSPolicyInfo{{PolicyName: "notification-policy"}},
+		Policies:    []*rlsutil.RowPolicy{{PolicyName: "notification-policy"}},
 	}))
 	close(coord.release)
 	require.NoError(t, <-done)

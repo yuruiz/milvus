@@ -22,6 +22,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/milvus-io/milvus/internal/util/rlsutil"
 	"github.com/milvus-io/milvus/pkg/v3/mlog"
 	"github.com/milvus-io/milvus/pkg/v3/proto/rootcoordpb"
 	"github.com/milvus-io/milvus/pkg/v3/util/commonpbutil"
@@ -89,7 +90,7 @@ func (m *manager) refreshSnapshots(ctx context.Context, coord CoordClient, dbNam
 		updated := m.setRLSPolicySnapshot(dbName, collectionID, policySnapshot{
 			Version:     int64(version),
 			RefreshedAt: refreshedAt,
-			Policies:    resp.GetPolicies(),
+			Policies:    rowPoliciesFromInfo(resp.GetPolicies()),
 		})
 		if !updated {
 			mlog.Debug(ctx, "skip stale RLS policy snapshot",
@@ -121,4 +122,27 @@ func (m *manager) refreshSnapshots(ctx context.Context, coord CoordClient, dbNam
 		}
 	}
 	return nil
+}
+
+func rowPoliciesFromInfo(policies []*rootcoordpb.RLSPolicyInfo) []*rlsutil.RowPolicy {
+	converted := make([]*rlsutil.RowPolicy, 0, len(policies))
+	for _, policy := range policies {
+		if policy == nil {
+			continue
+		}
+		actions := make([]rlsutil.PolicyAction, len(policy.GetActions()))
+		for i, action := range policy.GetActions() {
+			actions[i] = rlsutil.PolicyAction(action)
+		}
+		converted = append(converted, &rlsutil.RowPolicy{
+			PolicyName:  policy.GetPolicyName(),
+			PolicyType:  rlsutil.PolicyType(policy.GetPolicyType()),
+			Actions:     actions,
+			UsingExpr:   policy.GetUsingExpr(),
+			CheckExpr:   policy.GetCheckExpr(),
+			Description: policy.GetDescription(),
+			PolicyId:    policy.GetPolicyId(),
+		})
+	}
+	return converted
 }

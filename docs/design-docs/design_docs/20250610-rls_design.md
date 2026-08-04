@@ -258,6 +258,10 @@ configuration. Each collection state has its own read/write lock for snapshot
 versions, refresh timestamps, policies, principal tags, and compiled predicate
 state. MixCoord RPCs are always executed without either lock held, so metadata
 work for one collection cannot serialize requests for another collection.
+On a compiled-cache hit, predicate evaluation holds the collection read lock
+only long enough to capture the immutable compiled expression and principal-tag
+snapshot. Expression cloning, template instantiation, and rewriting happen after
+the lock is released. A cache miss compiles under that collection's write lock.
 
 RLS policy and principal-tag broadcast messages are currently marked
 unreplicable and are not yet forwarded through CDC.
