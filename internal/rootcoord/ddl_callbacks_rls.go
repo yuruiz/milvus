@@ -249,13 +249,13 @@ func (c *DDLCallback) alterRLSMetadataV2AckCallback(ctx context.Context, result 
 		if metadata.Policy == nil {
 			return merr.WrapErrServiceInternalMsg("alter RLS metadata message has nil policy")
 		}
-		msgType = rlsutil.MsgTypeUpdateRowPolicy
+		msgType = commonpb.MsgType_UpdateRowPolicy
 		err = c.meta.ApplyAlterRLSPolicy(ctx, unmarshalRLSPolicyMessage(header, metadata.Policy))
 	case *messagespb.AlterRLSMetadataMessageBody_Principal:
 		if metadata.Principal == nil {
 			return merr.WrapErrServiceInternalMsg("alter RLS metadata message has nil principal")
 		}
-		msgType = rlsutil.MsgTypeSetRLSPrincipalTags
+		msgType = commonpb.MsgType_SetRLSPrincipalTags
 		err = c.meta.ApplyAlterRLSPrincipal(ctx, unmarshalRLSPrincipalMessage(header, metadata.Principal))
 	default:
 		return merr.WrapErrServiceInternalMsg("alter RLS metadata message has no metadata")
@@ -276,10 +276,10 @@ func (c *DDLCallback) dropRLSMetadataV2AckCallback(ctx context.Context, result m
 	)
 	switch metadata := msg.MustBody().GetMetadata().(type) {
 	case *messagespb.DropRLSMetadataMessageBody_PolicyName:
-		msgType = rlsutil.MsgTypeDropRowPolicy
+		msgType = commonpb.MsgType_DropRowPolicy
 		err = c.meta.ApplyDropRLSPolicy(ctx, header.GetCollectionId(), metadata.PolicyName)
 	case *messagespb.DropRLSMetadataMessageBody_PrincipalName:
-		msgType = rlsutil.MsgTypeDeleteRLSPrincipalTags
+		msgType = commonpb.MsgType_DeleteRLSPrincipalTags
 		err = c.meta.ApplyDropRLSPrincipal(ctx, header.GetCollectionId(), metadata.PrincipalName)
 	default:
 		return merr.WrapErrServiceInternalMsg("drop RLS metadata message has no metadata")
@@ -306,7 +306,7 @@ func (c *DDLCallback) notifyRLSMetadataChangedAsync(ctx context.Context, msgType
 		if err := c.notifyRLSMetaChanged(ctx, msgType, coll.DBName, coll.Name, collectionID); err != nil {
 			mlog.Warn(ctx, "best-effort RLS metadata notification failed",
 				mlog.FieldCollectionID(collectionID),
-				mlog.Int32("msgType", int32(msgType)),
+				mlog.String("msgType", msgType.String()),
 				mlog.Err(err))
 		}
 	}()

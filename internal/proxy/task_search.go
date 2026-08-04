@@ -20,6 +20,7 @@ import (
 	"github.com/milvus-io/milvus/internal/agg"
 	"github.com/milvus-io/milvus/internal/parser/planparserv2"
 	"github.com/milvus-io/milvus/internal/proxy/accesslog"
+	"github.com/milvus-io/milvus/internal/proxy/rls"
 	"github.com/milvus-io/milvus/internal/proxy/search_agg"
 	"github.com/milvus-io/milvus/internal/proxy/shardclient"
 	"github.com/milvus-io/milvus/internal/types"
@@ -78,6 +79,7 @@ type searchTask struct {
 	partitionKeyMode       bool
 	partitionKeyIsolation  bool
 	largeTopKEnabled       bool
+	rlsEnabled             bool
 	enableMaterializedView bool
 	mustUsePartitionKey    bool
 	resultSizeInsufficient bool
@@ -192,6 +194,7 @@ func (t *searchTask) PreExecute(ctx context.Context) error {
 	}
 	t.largeTopKEnabled = collectionInfo.queryMode == common.QueryModeLargeTopK
 	t.partitionKeyIsolation = collectionInfo.partitionKeyIsolation
+	t.rlsEnabled = collectionInfo.rlsEnabled
 
 	t.partitionKeyMode, err = isPartitionKeyMode(ctx, t.request.GetDbName(), collectionName)
 	if err != nil {
@@ -1174,7 +1177,27 @@ func (t *searchTask) tryGeneratePlan(params []*commonpb.KeyValuePair, dsl string
 
 	searchInfo.planInfo.QueryFieldId = annField.GetFieldID()
 
-	hasFilter := dsl != "" || len(exprTemplateValues) > 0
+	visitorArgs := &planparserv2.ParserVisitorArgs{Timezone: t.resolvedTimezoneStr}
+	operation := "search"
+	if t.IsAdvanced {
+		operation = "hybrid search"
+	}
+	if t.rlsEnabled && t.request.GetSkipRls() {
+		if err := checkSkipRLSPrivilege(t.ctx, t.request.GetDbName(), t.request.GetCollectionName(), operation); err != nil {
+			return nil, nil, 0, false, nil, internalpb.SearchType_DEFAULT, err
+		}
+		t.rlsEnabled = false
+	}
+	principalName, enforceRLS, err := rls.ResolveRuntimePrincipal(t.rlsEnabled, t.request.GetRlsPrincipal(), operation)
+	if err != nil {
+		return nil, nil, 0, false, nil, internalpb.SearchType_DEFAULT, err
+	}
+	rlsPredicate, err := rls.DefaultManager().GetRLSUsingPredicate(t.ctx, t.GetCollectionID(), principalName, rls.SearchAction(t.IsAdvanced, searchInfo.isIterator), enforceRLS, t.schema.schemaHelper, visitorArgs)
+	if err != nil {
+		return nil, nil, 0, false, nil, internalpb.SearchType_DEFAULT, err
+	}
+
+	hasFilter := dsl != "" || rlsPredicate != nil || len(exprTemplateValues) > 0
 	searchType := internalpb.SearchType_DEFAULT
 	// if function rerank is set, keep searchType DEFAULT; optimizations will be disabled in queryhook
 	if !hasFunctionRerank(t.request) {
@@ -1182,7 +1205,7 @@ func (t *searchTask) tryGeneratePlan(params []*commonpb.KeyValuePair, dsl string
 	}
 
 	start := time.Now()
-	plan, planErr := planparserv2.CreateSearchPlanArgs(t.schema.schemaHelper, dsl, annsFieldName, searchInfo.planInfo, exprTemplateValues, t.request.GetFunctionScore(), &planparserv2.ParserVisitorArgs{Timezone: t.resolvedTimezoneStr})
+	plan, planErr := planparserv2.CreateSearchPlanArgs(t.schema.schemaHelper, dsl, annsFieldName, searchInfo.planInfo, exprTemplateValues, t.request.GetFunctionScore(), visitorArgs)
 	if planErr != nil {
 		mlog.Warn(t.ctx, "failed to create query plan", mlog.Err(planErr),
 			mlog.String("dsl", dsl), // may be very large if large term passed.
@@ -1191,6 +1214,9 @@ func (t *searchTask) tryGeneratePlan(params []*commonpb.KeyValuePair, dsl string
 		return nil, nil, 0, false, nil, internalpb.SearchType_DEFAULT, merr.WrapErrParameterInvalidMsg("failed to create query plan: %v", planErr)
 	}
 	metrics.ProxyParseExpressionLatency.WithLabelValues(strconv.FormatInt(paramtable.GetNodeID(), 10), "search", metrics.SuccessLabel).Observe(float64(time.Since(start).Microseconds()) / 1000.0)
+	if err := rls.MergePredicateToPlan(plan, rlsPredicate); err != nil {
+		return nil, nil, 0, false, nil, internalpb.SearchType_DEFAULT, err
+	}
 	mlog.Debug(t.ctx, "create query plan",
 		mlog.String("dsl", t.request.Dsl), // may be very large if large term passed.
 		mlog.String("anns field", annsFieldName), mlog.Any("query info", searchInfo.planInfo))

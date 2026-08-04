@@ -190,7 +190,7 @@ func TestRLSMetadataNotificationIsBestEffortAndNonBlocking(t *testing.T) {
 
 	select {
 	case req := <-notificationStarted:
-		require.Equal(t, commonpb.MsgType(rlsutil.MsgTypeUpdateRowPolicy), req.GetBase().GetMsgType())
+		require.Equal(t, commonpb.MsgType(commonpb.MsgType_UpdateRowPolicy), req.GetBase().GetMsgType())
 		require.Equal(t, int64(20), req.GetCollectionID())
 	case <-time.After(time.Second):
 		require.Fail(t, "best-effort Proxy notification was not started")

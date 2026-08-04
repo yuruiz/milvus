@@ -25,7 +25,6 @@ import (
 
 	"github.com/milvus-io/milvus-proto/go-api/v3/commonpb"
 	"github.com/milvus-io/milvus/internal/mocks"
-	"github.com/milvus-io/milvus/internal/util/rlsutil"
 	"github.com/milvus-io/milvus/pkg/v3/proto/proxypb"
 	"github.com/milvus-io/milvus/pkg/v3/proto/rootcoordpb"
 	"github.com/milvus-io/milvus/pkg/v3/util/merr"
@@ -51,7 +50,7 @@ func TestProxyRLSInvalidateRefreshesPolicySnapshot(t *testing.T) {
 	}, nil).Once()
 
 	status, err := node.InvalidateCollectionMetaCache(ctx, &proxypb.InvalidateCollMetaCacheRequest{
-		Base:           &commonpb.MsgBase{MsgType: rlsutil.MsgTypeCreateRowPolicy, Timestamp: 10},
+		Base:           &commonpb.MsgBase{MsgType: commonpb.MsgType_CreateRowPolicy, Timestamp: 10},
 		DbName:         "db",
 		CollectionName: "coll",
 		CollectionID:   100,
@@ -82,7 +81,7 @@ func TestProxyRLSInvalidateRefreshesPrincipalTagsSnapshot(t *testing.T) {
 	}, nil).Once()
 
 	status, err := node.InvalidateCollectionMetaCache(ctx, &proxypb.InvalidateCollMetaCacheRequest{
-		Base:           &commonpb.MsgBase{MsgType: rlsutil.MsgTypeSetRLSPrincipalTags, Timestamp: 10},
+		Base:           &commonpb.MsgBase{MsgType: commonpb.MsgType_SetRLSPrincipalTags, Timestamp: 10},
 		DbName:         "db",
 		CollectionName: "coll",
 		CollectionID:   100,

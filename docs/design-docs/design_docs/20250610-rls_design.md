@@ -18,11 +18,6 @@ check; otherwise the operation is denied.
 
 RLS is disabled by default. Enable it when creating the collection:
 
-During the stacked rollout, the management-only slices reject
-`rls.enabled=true`. The switch becomes available only when the runtime
-enforcement slice is present, so no independently deployable intermediate
-change can advertise RLS protection without enforcing it.
-
 ```python
 client.create_collection(
     collection_name="docs",

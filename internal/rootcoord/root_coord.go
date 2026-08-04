@@ -3502,7 +3502,7 @@ func (c *Core) DeleteClientCommand(ctx context.Context, req *milvuspb.DeleteClie
 	return c.telemetryMgr.DeleteCommand(ctx, req)
 }
 
-func (c *Core) CreateRowPolicy(ctx context.Context, req *rlsutil.CreateRowPolicyRequest) (*commonpb.Status, error) {
+func (c *Core) createRowPolicy(ctx context.Context, req *rlsutil.CreateRowPolicyRequest) (*commonpb.Status, error) {
 	method := "CreateRowPolicy"
 	metrics.RootCoordDDLReqCounter.WithLabelValues(method, metrics.TotalLabel).Inc()
 	tr := timerecord.NewTimeRecorder(method)
@@ -3532,7 +3532,7 @@ func (c *Core) CreateRowPolicy(ctx context.Context, req *rlsutil.CreateRowPolicy
 	return merr.Success(), nil
 }
 
-func (c *Core) UpdateRowPolicy(ctx context.Context, req *rlsutil.UpdateRowPolicyRequest) (*commonpb.Status, error) {
+func (c *Core) updateRowPolicy(ctx context.Context, req *rlsutil.UpdateRowPolicyRequest) (*commonpb.Status, error) {
 	method := "UpdateRowPolicy"
 	metrics.RootCoordDDLReqCounter.WithLabelValues(method, metrics.TotalLabel).Inc()
 	tr := timerecord.NewTimeRecorder(method)
@@ -3561,7 +3561,7 @@ func (c *Core) UpdateRowPolicy(ctx context.Context, req *rlsutil.UpdateRowPolicy
 	return merr.Success(), nil
 }
 
-func (c *Core) DropRowPolicy(ctx context.Context, req *rlsutil.DropRowPolicyRequest) (*commonpb.Status, error) {
+func (c *Core) dropRowPolicy(ctx context.Context, req *rlsutil.DropRowPolicyRequest) (*commonpb.Status, error) {
 	method := "DropRowPolicy"
 	metrics.RootCoordDDLReqCounter.WithLabelValues(method, metrics.TotalLabel).Inc()
 	tr := timerecord.NewTimeRecorder(method)
@@ -3590,7 +3590,7 @@ func (c *Core) DropRowPolicy(ctx context.Context, req *rlsutil.DropRowPolicyRequ
 	return merr.Success(), nil
 }
 
-func (c *Core) ListRowPolicies(ctx context.Context, req *rlsutil.ListRowPoliciesRequest) (*rlsutil.ListRowPoliciesResponse, error) {
+func (c *Core) listRowPolicies(ctx context.Context, req *rlsutil.ListRowPoliciesRequest) (*rlsutil.ListRowPoliciesResponse, error) {
 	method := "ListRowPolicies"
 	metrics.RootCoordDDLReqCounter.WithLabelValues(method, metrics.TotalLabel).Inc()
 	tr := timerecord.NewTimeRecorder(method)
@@ -3630,7 +3630,7 @@ func (c *Core) ListRowPolicies(ctx context.Context, req *rlsutil.ListRowPolicies
 	}, nil
 }
 
-func (c *Core) SetRLSPrincipalTags(ctx context.Context, req *rlsutil.SetRLSPrincipalTagsRequest) (*commonpb.Status, error) {
+func (c *Core) setRLSPrincipalTags(ctx context.Context, req *rlsutil.SetRLSPrincipalTagsRequest) (*commonpb.Status, error) {
 	method := "SetRLSPrincipalTags"
 	metrics.RootCoordDDLReqCounter.WithLabelValues(method, metrics.TotalLabel).Inc()
 	tr := timerecord.NewTimeRecorder(method)
@@ -3659,7 +3659,7 @@ func (c *Core) SetRLSPrincipalTags(ctx context.Context, req *rlsutil.SetRLSPrinc
 	return merr.Success(), nil
 }
 
-func (c *Core) GetRLSPrincipalTags(ctx context.Context, req *rlsutil.GetRLSPrincipalTagsRequest) (*rlsutil.GetRLSPrincipalTagsResponse, error) {
+func (c *Core) getRLSPrincipalTags(ctx context.Context, req *rlsutil.GetRLSPrincipalTagsRequest) (*rlsutil.GetRLSPrincipalTagsResponse, error) {
 	method := "GetRLSPrincipalTags"
 	metrics.RootCoordDDLReqCounter.WithLabelValues(method, metrics.TotalLabel).Inc()
 	tr := timerecord.NewTimeRecorder(method)
@@ -3702,7 +3702,7 @@ func (c *Core) GetRLSPrincipalTags(ctx context.Context, req *rlsutil.GetRLSPrinc
 	}, nil
 }
 
-func (c *Core) ListRLSPrincipals(ctx context.Context, req *rlsutil.ListRLSPrincipalsRequest) (*rlsutil.ListRLSPrincipalsResponse, error) {
+func (c *Core) listRLSPrincipals(ctx context.Context, req *rlsutil.ListRLSPrincipalsRequest) (*rlsutil.ListRLSPrincipalsResponse, error) {
 	method := "ListRLSPrincipals"
 	metrics.RootCoordDDLReqCounter.WithLabelValues(method, metrics.TotalLabel).Inc()
 	tr := timerecord.NewTimeRecorder(method)
@@ -3788,7 +3788,7 @@ func (c *Core) GetRLSMetadata(ctx context.Context, req *rootcoordpb.GetRLSMetada
 	}, nil
 }
 
-func (c *Core) DeleteRLSPrincipalTags(ctx context.Context, req *rlsutil.DeleteRLSPrincipalTagsRequest) (*commonpb.Status, error) {
+func (c *Core) deleteRLSPrincipalTags(ctx context.Context, req *rlsutil.DeleteRLSPrincipalTagsRequest) (*commonpb.Status, error) {
 	method := "DeleteRLSPrincipalTags"
 	metrics.RootCoordDDLReqCounter.WithLabelValues(method, metrics.TotalLabel).Inc()
 	tr := timerecord.NewTimeRecorder(method)
@@ -3819,17 +3819,17 @@ func (c *Core) DeleteRLSPrincipalTags(ctx context.Context, req *rlsutil.DeleteRL
 
 func (c *Core) notifyRLSMetaChanged(ctx context.Context, msgType commonpb.MsgType, dbName string, collectionName string, collectionID UniqueID) error {
 	if collectionID == 0 {
-		return merr.WrapErrServiceInternalMsg("skip RLS meta sync with empty mutation result, msgType=%d", msgType)
+		return merr.WrapErrServiceInternalMsg("skip RLS meta sync with empty mutation result, msgType=%s", msgType.String())
 	}
 	if c.tsoAllocator == nil {
-		return merr.WrapErrServiceInternalMsg("skip RLS meta sync without tso allocator, msgType=%d", msgType)
+		return merr.WrapErrServiceInternalMsg("skip RLS meta sync without tso allocator, msgType=%s", msgType.String())
 	}
 	if c.proxyClientManager == nil {
-		return merr.WrapErrServiceInternalMsg("skip RLS meta sync without proxy client manager, msgType=%d", msgType)
+		return merr.WrapErrServiceInternalMsg("skip RLS meta sync without proxy client manager, msgType=%s", msgType.String())
 	}
 	version, err := c.tsoAllocator.GenerateTSO(1)
 	if err != nil {
-		return merr.Wrapf(err, "failed to allocate RLS meta sync version, msgType=%d", msgType)
+		return merr.Wrapf(err, "failed to allocate RLS meta sync version, msgType=%s", msgType.String())
 	}
 	req := &proxypb.InvalidateCollMetaCacheRequest{
 		Base: commonpbutil.NewMsgBase(
@@ -3842,8 +3842,8 @@ func (c *Core) notifyRLSMetaChanged(ctx context.Context, msgType commonpb.MsgTyp
 		CollectionID:   collectionID,
 	}
 	if err := c.proxyClientManager.InvalidateCollectionMetaCache(ctx, req, proxyutil.SetMsgType(msgType)); err != nil {
-		return merr.Wrapf(err, "failed to sync RLS meta to proxies, msgType=%d, dbName=%s, collectionName=%s, collectionID=%d, version=%d",
-			msgType, dbName, collectionName, collectionID, version)
+		return merr.Wrapf(err, "failed to sync RLS meta to proxies, msgType=%s, dbName=%s, collectionName=%s, collectionID=%d, version=%d",
+			msgType.String(), dbName, collectionName, collectionID, version)
 	}
 	return nil
 }

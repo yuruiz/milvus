@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cockroachdb/errors"
@@ -607,6 +608,11 @@ func (t *createCollectionTask) PreExecute(ctx context.Context) error {
 
 	// validate namespace sharding
 	if err := common.ValidateNamespaceShardingEnabled(t.GetProperties()...); err != nil {
+		return err
+	}
+
+	// validate row level security
+	if err := common.ValidateRLSProperties(t.GetProperties()...); err != nil {
 		return err
 	}
 
@@ -2183,6 +2189,14 @@ func (t *alterCollectionTask) PreExecute(ctx context.Context) error {
 	}
 	if err := common.ValidateNamespaceShardingEnabledNotAltered(t.GetProperties(), t.GetDeleteKeys()); err != nil {
 		return err
+	}
+	if err := common.ValidateRLSProperties(t.GetProperties()...); err != nil {
+		return err
+	}
+	for _, key := range t.GetDeleteKeys() {
+		if strings.EqualFold(key, common.RLSEnabledKey) && key != common.RLSEnabledKey {
+			return merr.WrapErrParameterInvalidMsg("invalid property key %q, did you mean %q?", key, common.RLSEnabledKey)
+		}
 	}
 
 	collSchema, err := globalMetaCache.GetCollectionSchema(ctx, t.GetDbName(), t.CollectionName)
