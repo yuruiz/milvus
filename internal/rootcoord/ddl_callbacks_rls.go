@@ -20,10 +20,12 @@ import (
 	"context"
 	"maps"
 
+	"github.com/milvus-io/milvus-proto/go-api/v3/commonpb"
 	"github.com/milvus-io/milvus/internal/distributed/streaming"
 	"github.com/milvus-io/milvus/internal/metastore/model"
 	"github.com/milvus-io/milvus/internal/streamingcoord/server/broadcaster"
 	"github.com/milvus-io/milvus/internal/util/rlsutil"
+	"github.com/milvus-io/milvus/pkg/v3/mlog"
 	"github.com/milvus-io/milvus/pkg/v3/proto/messagespb"
 	"github.com/milvus-io/milvus/pkg/v3/streaming/util/message"
 	"github.com/milvus-io/milvus/pkg/v3/util/merr"
@@ -238,31 +240,74 @@ func unmarshalRLSPrincipalMessage(header *message.AlterRLSMetadataMessageHeader,
 func (c *DDLCallback) alterRLSMetadataV2AckCallback(ctx context.Context, result message.BroadcastResultAlterRLSMetadataMessageV2) error {
 	msg := result.Message
 	header := msg.Header()
+	var (
+		msgType commonpb.MsgType
+		err     error
+	)
 	switch metadata := msg.MustBody().GetMetadata().(type) {
 	case *messagespb.AlterRLSMetadataMessageBody_Policy:
 		if metadata.Policy == nil {
 			return merr.WrapErrServiceInternalMsg("alter RLS metadata message has nil policy")
 		}
-		return c.meta.ApplyAlterRLSPolicy(ctx, unmarshalRLSPolicyMessage(header, metadata.Policy))
+		msgType = rlsutil.MsgTypeUpdateRowPolicy
+		err = c.meta.ApplyAlterRLSPolicy(ctx, unmarshalRLSPolicyMessage(header, metadata.Policy))
 	case *messagespb.AlterRLSMetadataMessageBody_Principal:
 		if metadata.Principal == nil {
 			return merr.WrapErrServiceInternalMsg("alter RLS metadata message has nil principal")
 		}
-		return c.meta.ApplyAlterRLSPrincipal(ctx, unmarshalRLSPrincipalMessage(header, metadata.Principal))
+		msgType = rlsutil.MsgTypeSetRLSPrincipalTags
+		err = c.meta.ApplyAlterRLSPrincipal(ctx, unmarshalRLSPrincipalMessage(header, metadata.Principal))
 	default:
 		return merr.WrapErrServiceInternalMsg("alter RLS metadata message has no metadata")
 	}
+	if err != nil {
+		return err
+	}
+	c.notifyRLSMetadataChangedAsync(ctx, msgType, header.GetCollectionId())
+	return nil
 }
 
 func (c *DDLCallback) dropRLSMetadataV2AckCallback(ctx context.Context, result message.BroadcastResultDropRLSMetadataMessageV2) error {
 	msg := result.Message
 	header := msg.Header()
+	var (
+		msgType commonpb.MsgType
+		err     error
+	)
 	switch metadata := msg.MustBody().GetMetadata().(type) {
 	case *messagespb.DropRLSMetadataMessageBody_PolicyName:
-		return c.meta.ApplyDropRLSPolicy(ctx, header.GetCollectionId(), metadata.PolicyName)
+		msgType = rlsutil.MsgTypeDropRowPolicy
+		err = c.meta.ApplyDropRLSPolicy(ctx, header.GetCollectionId(), metadata.PolicyName)
 	case *messagespb.DropRLSMetadataMessageBody_PrincipalName:
-		return c.meta.ApplyDropRLSPrincipal(ctx, header.GetCollectionId(), metadata.PrincipalName)
+		msgType = rlsutil.MsgTypeDeleteRLSPrincipalTags
+		err = c.meta.ApplyDropRLSPrincipal(ctx, header.GetCollectionId(), metadata.PrincipalName)
 	default:
 		return merr.WrapErrServiceInternalMsg("drop RLS metadata message has no metadata")
 	}
+	if err != nil {
+		return err
+	}
+	c.notifyRLSMetadataChangedAsync(ctx, msgType, header.GetCollectionId())
+	return nil
+}
+
+func (c *DDLCallback) notifyRLSMetadataChangedAsync(ctx context.Context, msgType commonpb.MsgType, collectionID int64) {
+	if c.tsoAllocator == nil || c.proxyClientManager == nil {
+		return
+	}
+	coll, err := c.meta.GetCollectionByIDWithMaxTs(ctx, collectionID)
+	if err != nil {
+		mlog.Warn(ctx, "skip best-effort RLS metadata notification because collection metadata is unavailable",
+			mlog.FieldCollectionID(collectionID), mlog.Err(err))
+		return
+	}
+	ctx = context.WithoutCancel(ctx)
+	go func() {
+		if err := c.notifyRLSMetaChanged(ctx, msgType, coll.DBName, coll.Name, collectionID); err != nil {
+			mlog.Warn(ctx, "best-effort RLS metadata notification failed",
+				mlog.FieldCollectionID(collectionID),
+				mlog.Int32("msgType", int32(msgType)),
+				mlog.Err(err))
+		}
+	}()
 }

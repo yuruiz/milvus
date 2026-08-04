@@ -224,7 +224,8 @@ Proxy maintains an in-memory RLS manager cache. RootCoord exposes an internal,
 collection-scoped `GetRLSMetadata` RPC that returns the collection identity,
 all row policies, and all principals with their complete tag maps in one
 response. On startup, Proxy uses this RPC to load both snapshots for each
-existing collection without issuing per-principal RPCs.
+existing collection without issuing per-principal RPCs. This initialization runs
+in the background and does not block Proxy startup.
 
 Runtime notifications remain split by metadata type. On policy changes,
 RootCoord asks proxies to refresh the collection policy snapshot. On principal
@@ -245,6 +246,18 @@ reconciles snapshots whose last successful refresh is older than
 `proxy.rls.metaRefreshInterval`. A reconciliation allocates a TSO version before
 reading snapshots, so an older periodic read cannot overwrite a newer
 notification refresh.
+
+Every RLS-enforced request checks both policy and principal-tag snapshot
+freshness before evaluating a predicate. A missing or expired snapshot is
+refreshed synchronously through `GetRLSMetadata`. If the refresh fails, the
+request fails closed and the expired snapshot is not used for authorization.
+Concurrent request-path refreshes for the same collection are coalesced.
+
+The manager-level lock protects only the collection-state map and dependency
+configuration. Each collection state has its own read/write lock for snapshot
+versions, refresh timestamps, policies, principal tags, and compiled predicate
+state. MixCoord RPCs are always executed without either lock held, so metadata
+work for one collection cannot serialize requests for another collection.
 
 RLS policy and principal-tag broadcast messages are currently marked
 unreplicable and are not yet forwarded through CDC.

@@ -818,6 +818,45 @@ func TestMetaTable_RLSMetadata(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("get bulk metadata from collection cache", func(t *testing.T) {
+		meta, _ := newRLSMetaTableForTest(t)
+		meta.collID2Meta[20].RLSPolicies = []*model.RLSPolicy{
+			{
+				DBID:         10,
+				CollectionID: 20,
+				PolicyID:     100,
+				PolicyName:   "dept_read",
+				Actions:      []rlsutil.PolicyAction{rlsutil.PolicyActionQuery},
+			},
+		}
+		meta.collID2Meta[20].RLSPrincipals = []*model.RLSPrincipal{
+			{
+				DBID:          10,
+				CollectionID:  20,
+				PrincipalName: "alice",
+				Tags:          map[string]string{"dept": "sales"},
+			},
+		}
+
+		metadata, err := meta.GetRLSMetadata(ctx, 20)
+		require.NoError(t, err)
+		require.Equal(t, "db1", metadata.DBName)
+		require.Equal(t, "coll1", metadata.CollectionName)
+		require.Equal(t, int64(20), metadata.CollectionID)
+		require.Len(t, metadata.Policies, 1)
+		require.Equal(t, "dept_read", metadata.Policies[0].PolicyName)
+		require.Len(t, metadata.Principals, 1)
+		require.Equal(t, map[string]string{"dept": "sales"}, metadata.Principals[0].Tags)
+
+		metadata.Policies[0].Actions[0] = rlsutil.PolicyActionInsert
+		metadata.Principals[0].Tags["dept"] = "engineering"
+		require.Equal(t, rlsutil.PolicyActionQuery, meta.collID2Meta[20].RLSPolicies[0].Actions[0])
+		require.Equal(t, "sales", meta.collID2Meta[20].RLSPrincipals[0].Tags["dept"])
+
+		_, err = meta.GetRLSMetadata(ctx, 0)
+		require.ErrorIs(t, err, merr.ErrServiceInternal)
+	})
+
 	t.Run("drop policy by name", func(t *testing.T) {
 		meta, catalog := newRLSMetaTableForTest(t)
 		meta.collID2Meta[20].RLSPolicies = []*model.RLSPolicy{{PolicyName: "dept_read"}}

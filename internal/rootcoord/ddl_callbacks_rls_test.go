@@ -19,15 +19,19 @@ package rootcoord
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/milvus-io/milvus-proto/go-api/v3/commonpb"
 	"github.com/milvus-io/milvus-proto/go-api/v3/milvuspb"
 	"github.com/milvus-io/milvus/internal/metastore/model"
 	mockrootcoord "github.com/milvus-io/milvus/internal/rootcoord/mocks"
+	"github.com/milvus-io/milvus/internal/util/proxyutil"
 	"github.com/milvus-io/milvus/internal/util/rlsutil"
 	"github.com/milvus-io/milvus/pkg/v3/proto/messagespb"
+	"github.com/milvus-io/milvus/pkg/v3/proto/proxypb"
 	"github.com/milvus-io/milvus/pkg/v3/streaming/util/message"
 	"github.com/milvus-io/milvus/pkg/v3/util/merr"
 )
@@ -135,4 +139,61 @@ func TestRLSMetadataAckCallbacksRejectMissingPayload(t *testing.T) {
 		Message: message.MustAsBroadcastDropRLSMetadataMessageV2(drop),
 	})
 	require.ErrorIs(t, err, merr.ErrServiceInternal)
+}
+
+func TestRLSMetadataNotificationIsBestEffortAndNonBlocking(t *testing.T) {
+	ctx := context.Background()
+	meta := mockrootcoord.NewIMetaTable(t)
+	meta.EXPECT().ApplyAlterRLSPolicy(mock.Anything, mock.Anything).Return(nil).Once()
+	meta.EXPECT().GetCollectionByIDWithMaxTs(mock.Anything, int64(20)).Return(&model.Collection{
+		DBName:       "db1",
+		Name:         "coll1",
+		CollectionID: 20,
+	}, nil).Once()
+
+	pcm := proxyutil.NewMockProxyClientManager(t)
+	notificationStarted := make(chan *proxypb.InvalidateCollMetaCacheRequest, 1)
+	releaseNotification := make(chan struct{})
+	pcm.EXPECT().InvalidateCollectionMetaCache(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(_ context.Context, req *proxypb.InvalidateCollMetaCacheRequest, _ ...proxyutil.ExpireCacheOpt) error {
+			notificationStarted <- req
+			<-releaseNotification
+			return merr.WrapErrServiceUnavailableMsg("proxy unavailable")
+		}).Once()
+
+	core := newTestCore(withMeta(meta), withTsoAllocator(newMockTsoAllocator()))
+	core.proxyClientManager = pcm
+	callback := &DDLCallback{Core: core}
+	alterPolicy := message.NewAlterRLSMetadataMessageBuilderV2().
+		WithHeader(&message.AlterRLSMetadataMessageHeader{DbId: 10, CollectionId: 20}).
+		WithBody(&message.AlterRLSMetadataMessageBody{
+			Metadata: &messagespb.AlterRLSMetadataMessageBody_Policy{Policy: &messagespb.RLSPolicyMetadata{
+				PolicyId:   30,
+				PolicyName: "policy",
+			}},
+		}).
+		WithBroadcast([]string{"control"}).
+		MustBuildBroadcast()
+
+	callbackDone := make(chan error, 1)
+	go func() {
+		callbackDone <- callback.alterRLSMetadataV2AckCallback(ctx, message.BroadcastResultAlterRLSMetadataMessageV2{
+			Message: message.MustAsBroadcastAlterRLSMetadataMessageV2(alterPolicy),
+		})
+	}()
+	select {
+	case err := <-callbackDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		require.Fail(t, "ACK callback waited for best-effort Proxy notification")
+	}
+
+	select {
+	case req := <-notificationStarted:
+		require.Equal(t, commonpb.MsgType(rlsutil.MsgTypeUpdateRowPolicy), req.GetBase().GetMsgType())
+		require.Equal(t, int64(20), req.GetCollectionID())
+	case <-time.After(time.Second):
+		require.Fail(t, "best-effort Proxy notification was not started")
+	}
+	close(releaseNotification)
 }

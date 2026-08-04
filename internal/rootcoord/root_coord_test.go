@@ -1907,6 +1907,25 @@ func TestCore_RLSAPIs(t *testing.T) {
 	assert.True(t, merr.Ok(listPrincipalsResp.Status))
 	assert.Equal(t, []string{"alice", "bob"}, listPrincipalsResp.PrincipalNames)
 
+	meta.EXPECT().GetRLSMetadata(mock.Anything, int64(20)).Return(&model.RLSMetadata{
+		DBName:         "db1",
+		CollectionName: "coll1",
+		CollectionID:   20,
+		Policies:       []*model.RLSPolicy{{PolicyName: "policy1"}},
+		Principals: []*model.RLSPrincipal{
+			{DBID: 10, CollectionID: 20, PrincipalName: "alice", Tags: map[string]string{"dept": "sales"}},
+		},
+	}, nil).Once()
+	metadataResp, err := c.GetRLSMetadata(ctx, &rootcoordpb.GetRLSMetadataRequest{CollectionId: 20})
+	require.NoError(t, err)
+	assert.True(t, merr.Ok(metadataResp.GetStatus()))
+	assert.Equal(t, "db1", metadataResp.GetDbName())
+	assert.Equal(t, "coll1", metadataResp.GetCollectionName())
+	assert.Equal(t, int64(20), metadataResp.GetCollectionId())
+	require.Len(t, metadataResp.GetPolicies(), 1)
+	require.Len(t, metadataResp.GetPrincipals(), 1)
+	assert.Equal(t, map[string]string{"dept": "sales"}, metadataResp.GetPrincipals()[0].GetTags())
+
 	deleteTagsReq := &rlsutil.DeleteRLSPrincipalTagsRequest{DbName: "db1", CollectionName: "coll1", PrincipalName: "alice", TagKeys: []string{"dept"}}
 	meta.EXPECT().PrepareDeleteRLSPrincipalTags(mock.Anything, deleteTagsReq).Return(&model.RLSPrincipal{
 		DBID:          10,
@@ -1955,6 +1974,10 @@ func TestCore_RLSAPIsRejectNilRequest(t *testing.T) {
 	listPrincipalsResp, err := c.ListRLSPrincipals(ctx, nil)
 	require.NoError(t, err)
 	assertParameterInvalidStatus(t, listPrincipalsResp.Status)
+
+	metadataResp, err := c.GetRLSMetadata(ctx, nil)
+	require.NoError(t, err)
+	require.ErrorIs(t, merr.Error(metadataResp.GetStatus()), merr.ErrServiceInternal)
 
 	status, err = c.DeleteRLSPrincipalTags(ctx, nil)
 	require.NoError(t, err)

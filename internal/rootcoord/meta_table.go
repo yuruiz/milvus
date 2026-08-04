@@ -173,6 +173,7 @@ type IMetaTable interface {
 	ApplyDropRLSPrincipal(ctx context.Context, collectionID int64, principalName string) error
 	GetRLSPrincipalTags(ctx context.Context, req *rlsutil.GetRLSPrincipalTagsRequest) (map[string]string, error)
 	ListRLSPrincipals(ctx context.Context, req *rlsutil.ListRLSPrincipalsRequest) ([]string, error)
+	GetRLSMetadata(ctx context.Context, collectionID int64) (*model.RLSMetadata, error)
 
 	AddFileResource(ctx context.Context, resource *internalpb.FileResourceInfo) error
 	RemoveFileResource(ctx context.Context, name string) (error, bool)
@@ -3300,6 +3301,36 @@ func (mt *MetaTable) ListRLSPolicies(ctx context.Context, req *rlsutil.ListRowPo
 	return lo.Map(policies, func(policy *model.RLSPolicy, _ int) *rlsutil.RowPolicy {
 		return policy.ToRowPolicy()
 	}), nil
+}
+
+func (mt *MetaTable) GetRLSMetadata(ctx context.Context, collectionID int64) (*model.RLSMetadata, error) {
+	if collectionID == 0 {
+		return nil, merr.WrapErrServiceInternalMsg("failed to get RLS metadata with empty collection id")
+	}
+
+	mt.ddLock.RLock()
+	defer mt.ddLock.RUnlock()
+
+	coll, err := mt.getLatestCollectionByIDInternal(ctx, collectionID, false)
+	if err != nil {
+		return nil, err
+	}
+	dbName := coll.DBName
+	if dbName == "" {
+		db, err := mt.getDatabaseByIDInternal(ctx, coll.DBID, typeutil.MaxTimestamp)
+		if err != nil {
+			return nil, err
+		}
+		dbName = db.Name
+	}
+
+	return &model.RLSMetadata{
+		DBName:         dbName,
+		CollectionName: coll.Name,
+		CollectionID:   coll.CollectionID,
+		Policies:       model.CloneRLSPolicies(coll.RLSPolicies),
+		Principals:     model.CloneRLSPrincipals(coll.RLSPrincipals),
+	}, nil
 }
 
 func validateRLSPrincipalName(principalName string) error {

@@ -30,6 +30,7 @@ import (
 	"github.com/milvus-io/milvus-proto/go-api/v3/milvuspb"
 	"github.com/milvus-io/milvus/internal/allocator"
 	"github.com/milvus-io/milvus/internal/proxy/connection"
+	"github.com/milvus-io/milvus/internal/proxy/rls"
 	"github.com/milvus-io/milvus/internal/proxy/shardclient"
 	"github.com/milvus-io/milvus/internal/types"
 	"github.com/milvus-io/milvus/internal/util/dependency"
@@ -242,6 +243,12 @@ func (node *Proxy) Init() error {
 	}
 	mlog.Debug(node.ctx, "init meta cache done", mlog.String("role", typeutil.ProxyRole))
 
+	if err := rls.DefaultManager().Init(node.ctx, node.mixCoord, node.tsoAllocator.AllocOne); err != nil {
+		mlog.Warn(node.ctx, "failed to init RLS collection snapshots", mlog.String("role", typeutil.ProxyRole), mlog.Err(err))
+		return err
+	}
+	mlog.Debug(node.ctx, "init RLS collection snapshots done", mlog.String("role", typeutil.ProxyRole))
+
 	node.shardMgr = shardclient.NewShardClientMgr(node.mixCoord)
 	node.lbPolicy = shardclient.NewLBPolicyImpl(node.shardMgr)
 
@@ -276,6 +283,14 @@ func (node *Proxy) Start() error {
 		return err
 	}
 	mlog.Debug(node.ctx, "start id allocator done", mlog.String("role", typeutil.ProxyRole))
+
+	node.wg.Add(1)
+	go func() {
+		defer node.wg.Done()
+		if err := rls.DefaultManager().RunReconciler(node.ctx, node.mixCoord, node.tsoAllocator.AllocOne); err != nil {
+			mlog.Warn(node.ctx, "RLS snapshot reconciler stopped unexpectedly", mlog.Err(err))
+		}
+	}()
 
 	// Start callbacks
 	for _, cb := range node.startCallbacks {
